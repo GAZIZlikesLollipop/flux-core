@@ -4,9 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"regexp"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -14,15 +11,15 @@ import (
 
 type Cache struct {
 	mu     sync.Mutex
-	cnns   map[int64]*websocket.Conn
-	newCnn chan int64
+	cnns   map[string]*websocket.Conn
+	newCnn chan string
 }
 
 func CreateCache() *Cache {
 	return &Cache{
 		mu:     sync.Mutex{},
-		cnns:   make(map[int64]*websocket.Conn),
-		newCnn: make(chan int64),
+		cnns:   make(map[string]*websocket.Conn),
+		newCnn: make(chan string),
 	}
 }
 
@@ -33,12 +30,12 @@ var upgrader = websocket.Upgrader{
 
 type Request struct {
 	Data       []byte `json:"data"`
-	ReceiverId int64  `json:"receiver_id"`
+	ReceiverId string `json:"receiver_id"`
 }
 
 type Response struct {
 	Data     []byte `json:"data"`
-	SenderId int64  `json:"sender_id"`
+	SenderId string `json:"sender_id"`
 }
 
 func (c *Cache) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
@@ -48,14 +45,7 @@ func (c *Cache) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 	c.mu.Lock()
-	re := regexp.MustCompile(`[0-9]`)
-	userIdStr := strings.Join(re.FindAllString(req.Header.Get("User-Id"), -1), "")
-	userId, err := strconv.ParseInt(userIdStr, 10, 64)
-	if err != nil {
-		log.Println("Неверный userId: ", err)
-		conn.WriteMessage(websocket.TextMessage, []byte("Вы ввели неверный userId"))
-		return
-	}
+	userId := req.Header.Get("User-Id")
 	c.cnns[userId] = conn
 	go func() {
 		c.newCnn <- userId
