@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -51,6 +52,7 @@ func (c *Cache) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 		c.newCnn <- userId
 	}()
 	c.mu.Unlock()
+	log.Println("Новое соединение: ", userId)
 
 	defer func() {
 		c.mu.Lock()
@@ -65,15 +67,22 @@ func (c *Cache) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 			cn   *websocket.Conn
 			ok   bool
 		)
-		if err := conn.ReadJSON(&data); err != nil {
+		if _, dt, err := conn.ReadMessage(); err != nil {
 			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 				return
 			} else {
-				log.Println("Ошибка чтения json: ", err)
-				conn.WriteMessage(websocket.TextMessage, []byte("Ошибка чтения json message"))
+				log.Println("Ошибка чтения message: ", err)
+				conn.WriteMessage(websocket.TextMessage, []byte("Ошибка чтения message"))
+				return
+			}
+		} else {
+			if err := json.Unmarshal(dt, &data); err != nil {
+				log.Println("Ошибка преобразования json: ", err)
+				conn.WriteMessage(websocket.TextMessage, []byte("Ошибка преобразования json"))
 				return
 			}
 		}
+		log.Println("Получено сообщение для: ", userId)
 		if cn, ok = c.cnns[data.ReceiverId]; !ok || cn == nil {
 			for {
 				receiverId := <-c.newCnn
@@ -85,16 +94,23 @@ func (c *Cache) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 				}
 			}
 		}
-		if err := cn.WriteJSON(
-			Response{
+		msgData, err := json.Marshal(
+			&Response{
 				Data:     data.Data,
 				SenderId: userId,
 			},
-		); err != nil {
+		)
+		if err != nil {
+			log.Println("Ошибка преобразования в json: ", err)
+			conn.WriteMessage(websocket.TextMessage, []byte("Ошибка преобразования в json"))
+			return
+		}
+		if err := cn.WriteMessage(websocket.TextMessage, msgData); err != nil {
 			log.Println("Ошибка отправки json message: ", err)
 			conn.WriteMessage(websocket.TextMessage, []byte("Ошибка отправки json message"))
 			continue
 		}
+		fmt.Println("Отправлено сообщение на: ", data.ReceiverId)
 	}
 }
 
