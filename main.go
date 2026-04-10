@@ -56,7 +56,7 @@ func (c *Cache) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 
 	defer func() {
 		c.mu.Lock()
-		delete(c.cnns, userId)
+		c.cnns[userId] = nil
 		c.mu.Unlock()
 		conn.Close()
 	}()
@@ -83,16 +83,11 @@ func (c *Cache) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 			}
 		}
 		log.Println("Получено сообщение для: ", userId)
-		if cn, ok = c.cnns[data.ReceiverId]; !ok || cn == nil {
-			for {
-				receiverId := <-c.newCnn
-				if receiverId == data.ReceiverId {
-					cn = c.cnns[receiverId]
-					break
-				} else {
-					continue
-				}
-			}
+		cn, ok = c.cnns[data.ReceiverId]
+		if !ok {
+			log.Println("Пользователь не найден!")
+			conn.WriteMessage(websocket.TextMessage, []byte("Пользователь не найден"))
+			continue
 		}
 		msgData, err := json.Marshal(
 			&Response{
@@ -105,12 +100,28 @@ func (c *Cache) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 			conn.WriteMessage(websocket.TextMessage, []byte("Ошибка преобразования в json"))
 			return
 		}
+		if cn == nil {
+			for {
+				receiverId := <-c.newCnn
+				if receiverId == data.ReceiverId {
+					tmp := c.cnns[receiverId]
+					if tmp != nil {
+						cn = tmp
+						break
+					} else {
+						continue
+					}
+				} else {
+					continue
+				}
+			}
+		}
 		if err := cn.WriteMessage(websocket.TextMessage, msgData); err != nil {
 			log.Println("Ошибка отправки json message: ", err)
 			conn.WriteMessage(websocket.TextMessage, []byte("Ошибка отправки json message"))
 			continue
 		}
-		fmt.Println("Отправлено сообщение на: ", data.ReceiverId)
+		log.Println("Отправлено сообщение на: ", data.ReceiverId)
 	}
 }
 
