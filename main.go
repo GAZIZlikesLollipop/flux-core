@@ -77,10 +77,15 @@ func (c *Cache) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 			}
 		} else {
 			if err := json.Unmarshal(dt, &data); err != nil {
-				log.Println("Ошибка преобразования json: ", err)
+				log.Println("Ошибка преобразования request json: ", err)
 				conn.WriteMessage(websocket.TextMessage, []byte("Ошибка преобразования json"))
 				return
 			}
+		}
+		if data.ReceiverId == userId {
+			log.Println("Попытка подключения к самому себе от: ", userId)
+			conn.WriteMessage(websocket.TextMessage, []byte("Самому себе написать нельзя!"))
+			continue
 		}
 		log.Println("Получено сообщение для: ", userId)
 		cn, ok = c.cnns[data.ReceiverId]
@@ -96,7 +101,7 @@ func (c *Cache) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
 			},
 		)
 		if err != nil {
-			log.Println("Ошибка преобразования в json: ", err)
+			log.Println("Ошибка преобразования в response json: ", err)
 			conn.WriteMessage(websocket.TextMessage, []byte("Ошибка преобразования в json"))
 			return
 		}
